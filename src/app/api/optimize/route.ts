@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 
-const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY!;
-const CLAUDE_MODEL = "claude-sonnet-4-20250514";
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY!;
+const DEEPSEEK_MODEL = "deepseek-chat";
 
 // In-memory store — resets on each cold start. Sufficient for MVP.
 const resultStore = new Map<string, {
@@ -38,29 +38,30 @@ Be honest and critical — don't just praise. The user wants to actually improve
 
     const userPrompt = `Please analyze and optimize this resume${targetJob ? ` for a ${targetJob} position` : ""}:\n\n${resume}`;
 
-    const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
+    const deepseekRes = await fetch("https://api.deepseek.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": CLAUDE_API_KEY,
-        "anthropic-version": "2023-06-01",
+        "Authorization": `Bearer ${DEEPSEEK_API_KEY}`,
       },
       body: JSON.stringify({
-        model: CLAUDE_MODEL,
+        model: DEEPSEEK_MODEL,
         max_tokens: 4096,
-        system: systemPrompt,
-        messages: [{ role: "user", content: userPrompt }],
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
       }),
     });
 
-    if (!claudeRes.ok) {
-      const errText = await claudeRes.text().catch(() => "Unknown error");
-      console.error("Claude API error:", claudeRes.status, errText);
+    if (!deepseekRes.ok) {
+      const errText = await deepseekRes.text().catch(() => "Unknown error");
+      console.error("DeepSeek API error:", deepseekRes.status, errText);
       return Response.json({ error: "AI analysis failed. Please try again." }, { status: 502 });
     }
 
-    const claudeData = await claudeRes.json();
-    const content = claudeData.content?.[0]?.text;
+    const deepseekData = await deepseekRes.json();
+    const content = deepseekData.choices?.[0]?.message?.content;
     if (!content) {
       return Response.json({ error: "AI returned empty response. Please try again." }, { status: 502 });
     }
@@ -82,16 +83,17 @@ Be honest and critical — don't just praise. The user wants to actually improve
     }
 
     const id = crypto.randomUUID();
-    resultStore.set(id, {
+    const result = {
       original: resume,
       targetJob: targetJob || null,
       suggestions: parsed.suggestions || "",
       optimizedResume: parsed.optimizedResume || "",
       comparisonHtml: parsed.comparisonHtml || "",
       createdAt: Date.now(),
-    });
+    };
+    resultStore.set(id, result);
 
-    return Response.json({ id });
+    return Response.json({ id, ...result });
   } catch (err) {
     console.error("Optimize error:", err);
     return Response.json({ error: "Internal server error." }, { status: 500 });

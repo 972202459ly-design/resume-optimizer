@@ -28,6 +28,21 @@ function ResultInner() {
       setLoading(false);
       return;
     }
+
+    // Try localStorage first (set by page.tsx after POST completes)
+    const cached = localStorage.getItem(`result_${id}`);
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        setData(parsed);
+        setLoading(false);
+        return;
+      } catch {
+        // corrupted cache, fall through to fetch
+      }
+    }
+
+    // Fallback: GET from API (works if same Lambda instance serves both requests)
     fetch(`/api/optimize?id=${id}`)
       .then((r) => r.json())
       .then((d) => {
@@ -35,6 +50,7 @@ function ResultInner() {
           setError(d.error);
         } else {
           setData(d);
+          localStorage.setItem(`result_${id}`, JSON.stringify(d));
         }
       })
       .catch(() => setError("Failed to load results."))

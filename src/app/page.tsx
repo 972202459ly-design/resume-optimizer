@@ -33,6 +33,8 @@ export default function Home() {
 
     const data = await res.json();
     const id = data.id;
+    // Store full data in localStorage so result page can find it across serverless instances
+    localStorage.setItem(`result_${id}`, JSON.stringify(data));
     setLoading(false);
     router.push(`/result?id=${id}`);
   }
