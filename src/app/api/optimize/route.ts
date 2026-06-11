@@ -1,4 +1,6 @@
 import { NextRequest } from "next/server";
+import DOMPurify from "dompurify";
+import { JSDOM } from "jsdom";
 
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY!;
 const DEEPSEEK_MODEL = "deepseek-chat";
@@ -13,8 +15,42 @@ const resultStore = new Map<string, {
   createdAt: number;
 }>();
 
+// Simple in-memory rate limiter: 10 requests per minute per IP
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+const RATE_LIMIT = 10;
+const RATE_WINDOW_MS = 60_000;
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = rateLimitMap.get(ip);
+  if (!entry || now > entry.resetAt) {
+    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS });
+    return true;
+  }
+  if (entry.count >= RATE_LIMIT) return false;
+  entry.count++;
+  return true;
+}
+
+// Sanitize HTML before rendering to prevent XSS
+function sanitizeHtml(html: string): string {
+  const window = new JSDOM("").window;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const purify = DOMPurify(window as any);
+  return purify.sanitize(html, {
+    ALLOWED_TAGS: ["table", "thead", "tbody", "tr", "th", "td", "p", "br", "b", "strong", "i", "em", "ul", "ol", "li", "span", "div"],
+    ALLOWED_ATTR: ["class"],
+  });
+}
+
 export async function POST(request: NextRequest) {
   try {
+    // Rate limiting
+    const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+    if (!checkRateLimit(ip)) {
+      return Response.json({ error: "Too many requests. Please wait a minute." }, { status: 429 });
+    }
+
     const { resume, targetJob } = await request.json();
 
     if (!resume || typeof resume !== "string" || resume.trim().length === 0) {
@@ -66,7 +102,7 @@ Be honest and critical — don't just praise. The user wants to actually improve
       return Response.json({ error: "AI returned empty response. Please try again." }, { status: 502 });
     }
 
-    // Parse JSON from Claude's response
+    // Parse JSON from DeepSeek's response
     let parsed;
     try {
       // Try direct parse first
@@ -77,7 +113,7 @@ Be honest and critical — don't just praise. The user wants to actually improve
       if (jsonMatch) {
         parsed = JSON.parse(jsonMatch[1]);
       } else {
-        console.error("Failed to parse Claude response as JSON:", content.slice(0, 200));
+        console.error("Failed to parse DeepSeek response as JSON:", content.slice(0, 200));
         return Response.json({ error: "Failed to parse AI response. Please try again." }, { status: 502 });
       }
     }
@@ -88,7 +124,7 @@ Be honest and critical — don't just praise. The user wants to actually improve
       targetJob: targetJob || null,
       suggestions: parsed.suggestions || "",
       optimizedResume: parsed.optimizedResume || "",
-      comparisonHtml: parsed.comparisonHtml || "",
+      comparisonHtml: sanitizeHtml(parsed.comparisonHtml || ""),
       createdAt: Date.now(),
     };
     resultStore.set(id, result);

@@ -48,6 +48,14 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
+      {process.env.NEXT_PUBLIC_GA_ID && (
+        <script async src={`https://www.googletagmanager.com/gtag/js?id=${process.env.NEXT_PUBLIC_GA_ID}`} />
+      )}
+      {process.env.NEXT_PUBLIC_GA_ID && (
+        <script dangerouslySetInnerHTML={{
+          __html: `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${process.env.NEXT_PUBLIC_GA_ID}');`
+        }} />
+      )}
       <body className="min-h-full flex flex-col">
         <main className="flex-1">{children}</main>
       </body>

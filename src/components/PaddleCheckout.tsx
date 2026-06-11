@@ -5,9 +5,24 @@ import type { Paddle } from "@paddle/paddle-js";
 
 interface Props {
   onSuccess: () => void;
+  resultId?: string | null;
 }
 
-export default function PaddleCheckout({ onSuccess }: Props) {
+const PAID_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+export function storePaidState(resultId: string) {
+  localStorage.setItem(`paid_${resultId}`, String(Date.now()));
+}
+
+export function isPaidState(resultId: string): boolean {
+  const stored = localStorage.getItem(`paid_${resultId}`);
+  if (!stored) return false;
+  const timestamp = parseInt(stored, 10);
+  if (isNaN(timestamp)) return false;
+  return Date.now() - timestamp < PAID_EXPIRY_MS;
+}
+
+export default function PaddleCheckout({ onSuccess, resultId }: Props) {
   const [paddle, setPaddle] = useState<Paddle | null>(null);
 
   useEffect(() => {
@@ -51,13 +66,17 @@ export default function PaddleCheckout({ onSuccess }: Props) {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     if (params.get("paid") === "1") {
+      // Persist paid state for this result
+      if (resultId) {
+        storePaidState(resultId);
+      }
       onSuccess();
       // Clean up the URL
       const url = new URL(window.location.href);
       url.searchParams.delete("paid");
       window.history.replaceState({}, "", url.toString());
     }
-  }, [onSuccess]);
+  }, [onSuccess, resultId]);
 
   return (
     <button

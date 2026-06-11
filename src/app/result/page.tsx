@@ -1,8 +1,9 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { useEffect, useState, Suspense } from "react";
-import PaddleCheckout from "@/components/PaddleCheckout";
+import PaddleCheckout, { isPaidState } from "@/components/PaddleCheckout";
 
 interface ResultData {
   original: string;
@@ -18,22 +19,17 @@ function ResultInner() {
   const id = searchParams.get("id");
 
   const [data, setData] = useState<ResultData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [paid, setPaid] = useState(false);
+  const [loading, setLoading] = useState(!!id);
+  const [error, setError] = useState(id ? "" : "No result ID found.");
+  const [paid, setPaid] = useState(() => id ? isPaidState(id) : false);
 
   useEffect(() => {
-    if (!id) {
-      setError("No result ID found.");
-      setLoading(false);
-      return;
-    }
-
-    // Try localStorage first (set by page.tsx after POST completes)
+    if (!id) return;
     const cached = localStorage.getItem(`result_${id}`);
     if (cached) {
       try {
         const parsed = JSON.parse(cached);
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- restoring cached data from localStorage is the intended use of effects
         setData(parsed);
         setLoading(false);
         return;
@@ -69,9 +65,9 @@ function ResultInner() {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-4">
         <p className="text-red-400 text-sm">{error || "Result not found."}</p>
-        <a href="/" className="text-sm text-[#888] hover:text-white transition-colors underline">
+        <Link href="/" className="text-sm text-[#888] hover:text-white transition-colors underline">
           Try again
-        </a>
+        </Link>
       </div>
     );
   }
@@ -106,6 +102,7 @@ function ResultInner() {
                   </p>
                   <PaddleCheckout
                     onSuccess={() => setPaid(true)}
+                    resultId={id}
                   />
                 </div>
               </div>
@@ -157,9 +154,9 @@ function ResultInner() {
 
       {/* Footer */}
       <div className="text-center">
-        <a href="/" className="text-sm text-[#555] hover:text-[#888] transition-colors underline">
+        <Link href="/" className="text-sm text-[#555] hover:text-[#888] transition-colors underline">
           Optimize another resume
-        </a>
+        </Link>
       </div>
     </div>
   );
