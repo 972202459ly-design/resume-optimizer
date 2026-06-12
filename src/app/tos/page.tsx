@@ -10,11 +10,15 @@ export default function TosPage() {
       <h1 className="text-3xl font-bold text-white mb-8">Terms of Service</h1>
       <div className="text-sm text-[#888] space-y-4 leading-relaxed">
         <p><strong className="text-white">Last updated:</strong> June 2026</p>
+        <p>
+          AI Resume Optimizer is operated by <strong className="text-white">wc26live</strong> ("we", "us", or "our").
+          By accessing or using this Service, you agree to be bound by these Terms of Service.
+        </p>
 
         <h2 className="text-white font-semibold text-base mt-8">1. Acceptance of Terms</h2>
         <p>
-          By using AI Resume Optimizer ("the Service"), you agree to these Terms of Service. If you do not agree,
-          do not use the Service.
+          By using AI Resume Optimizer ("the Service"), operated by wc26live, you agree to these Terms of Service.
+          If you do not agree, do not use the Service.
         </p>
 
         <h2 className="text-white font-semibold text-base mt-8">2. Description of Service</h2>
