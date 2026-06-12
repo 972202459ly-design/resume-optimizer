@@ -3,7 +3,8 @@
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useEffect, useState, Suspense } from "react";
-import PaddleCheckout, { isPaidState } from "@/components/PaddleCheckout";
+import ReactMarkdown from "react-markdown";
+import PaddleCheckout from "@/components/PaddleCheckout";
 
 interface ResultData {
   original: string;
@@ -14,6 +15,65 @@ interface ResultData {
   createdAt: number;
 }
 
+// Split suggestions: show first 2 sections free, lock the rest
+function splitSuggestions(content: string): { preview: string; locked: string } {
+  const lines = content.split("\n");
+  let sectionCount = 0;
+  let splitIndex = lines.length;
+
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].startsWith("## ")) {
+      sectionCount++;
+      if (sectionCount === 3) {
+        splitIndex = i;
+        break;
+      }
+    }
+  }
+
+  return {
+    preview: lines.slice(0, splitIndex).join("\n"),
+    locked: lines.slice(splitIndex).join("\n"),
+  };
+}
+
+const mdComponents = {
+  h1: ({ children }: { children?: React.ReactNode }) => (
+    <h1 className="text-white font-bold text-xl mt-6 mb-3">{children}</h1>
+  ),
+  h2: ({ children }: { children?: React.ReactNode }) => (
+    <h2 className="text-white font-semibold text-lg mt-6 mb-2 border-b border-[#333] pb-1">{children}</h2>
+  ),
+  h3: ({ children }: { children?: React.ReactNode }) => (
+    <h3 className="text-white font-semibold mt-4 mb-2">{children}</h3>
+  ),
+  p: ({ children }: { children?: React.ReactNode }) => (
+    <p className="text-[#ccc] mb-3 leading-relaxed">{children}</p>
+  ),
+  ul: ({ children }: { children?: React.ReactNode }) => (
+    <ul className="space-y-1 mb-3 pl-4">{children}</ul>
+  ),
+  ol: ({ children }: { children?: React.ReactNode }) => (
+    <ol className="space-y-1 mb-3 pl-4 list-decimal">{children}</ol>
+  ),
+  li: ({ children }: { children?: React.ReactNode }) => (
+    <li className="text-[#ccc] list-disc leading-relaxed">{children}</li>
+  ),
+  strong: ({ children }: { children?: React.ReactNode }) => (
+    <strong className="text-white font-semibold">{children}</strong>
+  ),
+  em: ({ children }: { children?: React.ReactNode }) => (
+    <em className="text-[#aaa] italic">{children}</em>
+  ),
+  blockquote: ({ children }: { children?: React.ReactNode }) => (
+    <blockquote className="border-l-2 border-[#444] pl-4 text-[#888] my-3">{children}</blockquote>
+  ),
+  code: ({ children }: { children?: React.ReactNode }) => (
+    <code className="bg-[#1a1a1a] text-[#e5c07b] px-1.5 py-0.5 rounded text-sm font-mono">{children}</code>
+  ),
+  hr: () => <hr className="border-[#333] my-4" />,
+};
+
 function ResultInner() {
   const searchParams = useSearchParams();
   const id = searchParams.get("id");
@@ -21,37 +81,52 @@ function ResultInner() {
   const [data, setData] = useState<ResultData | null>(null);
   const [loading, setLoading] = useState(!!id);
   const [error, setError] = useState(id ? "" : "No result ID found.");
-  const [paid, setPaid] = useState(() => id ? isPaidState(id) : false);
+  const [paid, setPaid] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!id) return;
-    const cached = localStorage.getItem(`result_${id}`);
-    if (cached) {
-      try {
-        const parsed = JSON.parse(cached);
-        // eslint-disable-next-line react-hooks/set-state-in-effect -- restoring cached data from localStorage is the intended use of effects
-        setData(parsed);
-        setLoading(false);
-        return;
-      } catch {
-        // corrupted cache, fall through to fetch
-      }
-    }
 
-    // Fallback: GET from API (works if same Lambda instance serves both requests)
-    fetch(`/api/optimize?id=${id}`)
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.error) {
-          setError(d.error);
-        } else {
+    const loadData = async () => {
+      // Load result — use localStorage as cache to avoid redundant fetches
+      const cached = localStorage.getItem(`result_${id}`);
+      if (cached) {
+        try { setData(JSON.parse(cached)); } catch { /* fall through */ }
+      }
+      if (!cached) {
+        try {
+          const r = await fetch(`/api/optimize?id=${id}`);
+          const d = await r.json();
+          if (d.error) { setError(d.error); setLoading(false); return; }
           setData(d);
           localStorage.setItem(`result_${id}`, JSON.stringify(d));
+        } catch {
+          setError("Failed to load results.");
+          setLoading(false);
+          return;
         }
-      })
-      .catch(() => setError("Failed to load results."))
-      .finally(() => setLoading(false));
+      }
+
+      // Always check paid status from server — cannot be faked client-side
+      try {
+        const r = await fetch(`/api/paid-check?id=${id}`);
+        const d = await r.json();
+        setPaid(d.paid === true);
+      } catch { /* treat as unpaid on error */ }
+
+      setLoading(false);
+    };
+
+    loadData();
   }, [id]);
+
+  function handleCopy() {
+    if (!data) return;
+    navigator.clipboard.writeText(data.optimizedResume).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
 
   if (loading) {
     return (
@@ -72,87 +147,104 @@ function ResultInner() {
     );
   }
 
-  // Split suggestions at 50% for free preview
-  const halfPoint = Math.floor(data.suggestions.length / 2);
-  const preview = data.suggestions.slice(0, halfPoint);
-  const locked = data.suggestions.slice(halfPoint);
+  const { preview, locked } = splitSuggestions(data.suggestions);
+  const hasLockedContent = locked.trim().length > 0;
 
   return (
     <div className="flex-1 w-full max-w-4xl mx-auto px-6 py-12">
-      <h1 className="text-2xl font-bold text-white mb-2">Optimization Results</h1>
-      {data.targetJob && (
-        <p className="text-sm text-[#888] mb-8">Tailored for: <span className="text-white">{data.targetJob}</span></p>
-      )}
+      <div className="mb-8">
+        <h1 className="text-2xl font-bold text-white mb-1">Optimization Results</h1>
+        {data.targetJob && (
+          <p className="text-sm text-[#888]">
+            Tailored for: <span className="text-white">{data.targetJob}</span>
+          </p>
+        )}
+      </div>
 
       {/* Suggestions */}
-      <section className="mb-12">
-        <h2 className="text-lg font-semibold text-white mb-4">Suggestions</h2>
+      <section className="mb-10">
+        <h2 className="text-lg font-semibold text-white mb-4">AI Analysis</h2>
         <div className="bg-[#111] border border-[#222] rounded-xl p-6">
-          <div className="prose prose-sm prose-invert max-w-none">
-            <RenderMarkdown content={preview} />
-          </div>
+          <ReactMarkdown components={mdComponents}>{preview}</ReactMarkdown>
 
-          {!paid && (
-            <div className="relative mt-8">
-              <div className="absolute inset-0 bg-gradient-to-b from-transparent to-[#111] pointer-events-none" style={{ top: "-2rem" }} />
-              <div className="border-t border-[#333] pt-6 mt-4">
-                <div className="text-center space-y-4">
-                  <p className="text-sm text-[#555]">
-                    Unlock the full analysis + before/after comparison + optimized resume
+          {!paid && hasLockedContent && (
+            <div className="mt-6 relative">
+              {/* Fade overlay */}
+              <div className="absolute -top-12 left-0 right-0 h-12 bg-gradient-to-b from-transparent to-[#111] pointer-events-none" />
+              <div className="border-t border-[#2a2a2a] pt-6">
+                <div className="text-center space-y-3">
+                  <p className="text-sm font-medium text-white">
+                    {locked.match(/^## /gm)?.length ?? 0} more sections locked
+                  </p>
+                  <p className="text-xs text-[#555]">
+                    Keywords · Achievements · Before/After comparison · Optimized resume
                   </p>
                   <PaddleCheckout
-                    onSuccess={() => setPaid(true)}
-                    resultId={id}
-                  />
+          onSuccess={async () => {
+            // Re-check server — webhook may arrive slightly after redirect
+            for (let i = 0; i < 5; i++) {
+              await new Promise((r) => setTimeout(r, 1500));
+              const res = await fetch(`/api/paid-check?id=${id}`);
+              const d = await res.json();
+              if (d.paid) { setPaid(true); return; }
+            }
+            setPaid(true); // optimistic fallback after 5 retries
+          }}
+          resultId={id}
+        />
                 </div>
               </div>
             </div>
           )}
 
-          {paid && (
-            <div className="mt-8 pt-6 border-t border-[#333]">
-              <RenderMarkdown content={locked} />
+          {paid && hasLockedContent && (
+            <div className="mt-2">
+              <ReactMarkdown components={mdComponents}>{locked}</ReactMarkdown>
             </div>
           )}
         </div>
       </section>
 
-      {/* Comparison Table — locked until paid */}
-      <section className="mb-12">
+      {/* Comparison Table */}
+      <section className="mb-10">
         <h2 className="text-lg font-semibold text-white mb-4">Before vs After</h2>
         {paid ? (
           <div
-            className="bg-[#111] border border-[#222] rounded-xl p-6 text-sm [&_table]:w-full [&_th]:text-left [&_th]:p-2 [&_th]:text-[#888] [&_th]:border-b [&_th]:border-[#333] [&_td]:p-2 [&_td]:border-b [&_td]:border-[#222] [&_td]:align-top"
+            className="bg-[#111] border border-[#222] rounded-xl p-6 text-sm overflow-x-auto
+              [&_table]:w-full [&_table]:border-collapse
+              [&_th]:text-left [&_th]:p-3 [&_th]:text-[#888] [&_th]:text-xs [&_th]:uppercase [&_th]:tracking-wide [&_th]:border-b [&_th]:border-[#333]
+              [&_td]:p-3 [&_td]:border-b [&_td]:border-[#1e1e1e] [&_td]:align-top [&_td]:text-[#ccc] [&_td]:leading-relaxed"
             dangerouslySetInnerHTML={{ __html: data.comparisonHtml }}
           />
         ) : (
-          <div className="bg-[#111] border border-[#222] rounded-xl p-6 text-center text-sm text-[#555]">
-            <p>Upgrade to see side-by-side comparison</p>
+          <div className="bg-[#111] border border-[#222] rounded-xl p-8 text-center">
+            <p className="text-sm text-[#555]">Unlock Premium to see side-by-side comparison</p>
           </div>
         )}
       </section>
 
-      {/* Optimized Resume — locked until paid */}
-      <section className="mb-12">
+      {/* Optimized Resume */}
+      <section className="mb-10">
         <h2 className="text-lg font-semibold text-white mb-4">Optimized Resume</h2>
         {paid ? (
           <div className="bg-[#111] border border-[#222] rounded-xl p-6">
-            <pre className="text-sm text-[#ccc] whitespace-pre-wrap font-sans">{data.optimizedResume}</pre>
+            <pre className="text-sm text-[#ccc] whitespace-pre-wrap font-sans leading-relaxed">
+              {data.optimizedResume}
+            </pre>
             <button
-              onClick={() => navigator.clipboard.writeText(data.optimizedResume)}
+              onClick={handleCopy}
               className="mt-4 px-4 py-2 rounded-lg text-xs font-semibold bg-white text-black hover:bg-[#e5e5e5] transition-colors"
             >
-              Copy to Clipboard
+              {copied ? "Copied!" : "Copy to Clipboard"}
             </button>
           </div>
         ) : (
-          <div className="bg-[#111] border border-[#222] rounded-xl p-6 text-center text-sm text-[#555]">
-            <p>Upgrade to see the full optimized resume</p>
+          <div className="bg-[#111] border border-[#222] rounded-xl p-8 text-center">
+            <p className="text-sm text-[#555]">Unlock Premium to get the full optimized resume</p>
           </div>
         )}
       </section>
 
-      {/* Footer */}
       <div className="text-center">
         <Link href="/" className="text-sm text-[#555] hover:text-[#888] transition-colors underline">
           Optimize another resume
@@ -162,43 +254,15 @@ function ResultInner() {
   );
 }
 
-function RenderMarkdown({ content }: { content: string }) {
-  // Simple markdown rendering — split into lines and render headings/bold/lists
-  const lines = content.split("\n");
-  return (
-    <>
-      {lines.map((line, i) => {
-        if (line.startsWith("### ")) {
-          return <h3 key={i} className="text-white font-semibold mt-4 mb-2">{line.slice(4)}</h3>;
-        }
-        if (line.startsWith("## ")) {
-          return <h2 key={i} className="text-white font-semibold text-lg mt-6 mb-2">{line.slice(3)}</h2>;
-        }
-        if (line.startsWith("# ")) {
-          return <h1 key={i} className="text-white font-bold text-xl mt-6 mb-3">{line.slice(2)}</h1>;
-        }
-        if (line.startsWith("- ") || line.startsWith("* ")) {
-          return <li key={i} className="text-[#ccc] ml-4 list-disc">{line.slice(2)}</li>;
-        }
-        if (line.startsWith("**") && line.endsWith("**")) {
-          return <p key={i} className="text-white font-semibold mt-3 mb-1">{line.slice(2, -2)}</p>;
-        }
-        if (line.trim() === "") {
-          return <div key={i} className="h-2" />;
-        }
-        return <p key={i} className="text-[#ccc]">{line}</p>;
-      })}
-    </>
-  );
-}
-
 export default function ResultPage() {
   return (
-    <Suspense fallback={
-      <div className="flex-1 flex items-center justify-center">
-        <p className="text-[#888] text-sm">Loading...</p>
-      </div>
-    }>
+    <Suspense
+      fallback={
+        <div className="flex-1 flex items-center justify-center">
+          <p className="text-[#888] text-sm">Loading...</p>
+        </div>
+      }
+    >
       <ResultInner />
     </Suspense>
   );

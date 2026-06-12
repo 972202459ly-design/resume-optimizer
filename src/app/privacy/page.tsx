@@ -14,7 +14,7 @@ export default function PrivacyPage() {
         <h2 className="text-white font-semibold text-base mt-8">1. Information We Collect</h2>
         <p>
           When you use AI Resume Optimizer, we collect the resume content and target job title you submit for analysis.
-          This data is processed by our AI provider (Anthropic) to generate optimization suggestions and is temporarily
+          This data is processed by our AI provider (DeepSeek) to generate optimization suggestions and is temporarily
           stored to display your results. We do not sell, share, or use your resume data for any other purpose.
         </p>
 
@@ -36,7 +36,7 @@ export default function PrivacyPage() {
           We use the following third-party services:
         </p>
         <ul className="list-disc ml-6 space-y-1">
-          <li><strong className="text-white">Anthropic (Claude)</strong> — AI analysis of resume content</li>
+          <li><strong className="text-white">DeepSeek</strong> — AI analysis of resume content</li>
           <li><strong className="text-white">Paddle</strong> — Payment processing</li>
           <li><strong className="text-white">Google Analytics</strong> — Anonymous usage tracking</li>
           <li><strong className="text-white">Vercel</strong> — Hosting and infrastructure</li>

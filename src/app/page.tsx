@@ -79,7 +79,7 @@ export default function Home() {
   return (
     <div className="flex flex-col items-center">
       {/* Hero */}
-      <section className="w-full max-w-3xl px-6 pt-24 pb-12 text-center">
+      <section className="w-full max-w-3xl px-6 pt-14 pb-12 text-center">
         <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-white">
           AI Resume Optimizer
         </h1>
@@ -213,17 +213,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="w-full border-t border-[#222] py-6">
-        <div className="max-w-3xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <p className="text-xs text-[#555]">© 2026 AI Resume Optimizer</p>
-          <div className="flex gap-4 text-xs text-[#555]">
-            <a href="/privacy" className="hover:text-[#888] transition-colors">Privacy</a>
-            <a href="/tos" className="hover:text-[#888] transition-colors">Terms</a>
-            <a href="/refund" className="hover:text-[#888] transition-colors">Refund Policy</a>
-          </div>
-        </div>
-      </footer>
     </div>
   );
 }

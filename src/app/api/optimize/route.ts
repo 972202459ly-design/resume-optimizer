@@ -1,38 +1,11 @@
 import { NextRequest } from "next/server";
 import DOMPurify from "dompurify";
 import { JSDOM } from "jsdom";
+import { saveResult, getResult } from "@/lib/db";
 
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY!;
 const DEEPSEEK_MODEL = "deepseek-chat";
 
-// In-memory store — resets on each cold start. Sufficient for MVP.
-const resultStore = new Map<string, {
-  original: string;
-  targetJob: string | null;
-  suggestions: string;
-  optimizedResume: string;
-  comparisonHtml: string;
-  createdAt: number;
-}>();
-
-// Simple in-memory rate limiter: 10 requests per minute per IP
-const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT = 10;
-const RATE_WINDOW_MS = 60_000;
-
-function checkRateLimit(ip: string): boolean {
-  const now = Date.now();
-  const entry = rateLimitMap.get(ip);
-  if (!entry || now > entry.resetAt) {
-    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS });
-    return true;
-  }
-  if (entry.count >= RATE_LIMIT) return false;
-  entry.count++;
-  return true;
-}
-
-// Sanitize HTML before rendering to prevent XSS
 function sanitizeHtml(html: string): string {
   const window = new JSDOM("").window;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -45,34 +18,25 @@ function sanitizeHtml(html: string): string {
 
 export async function POST(request: NextRequest) {
   try {
-    // Rate limiting
-    const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-    if (!checkRateLimit(ip)) {
-      return Response.json({ error: "Too many requests. Please wait a minute." }, { status: 429 });
-    }
-
     const { resume, targetJob } = await request.json();
 
     if (!resume || typeof resume !== "string" || resume.trim().length === 0) {
       return Response.json({ error: "Resume text is required." }, { status: 400 });
     }
-
     if (resume.length > 10000) {
       return Response.json({ error: "Resume is too long. Please limit to 10,000 characters." }, { status: 400 });
     }
 
-    const systemPrompt = `You are an expert resume reviewer and career coach. Your task is to analyze the provided resume and give actionable suggestions to improve it.
+    const systemPrompt = `You are an expert resume reviewer and career coach. Analyze the provided resume and give actionable suggestions to improve it.
 
 Return your analysis as valid JSON with these fields:
 {
-  "suggestions": "A detailed markdown analysis of the resume — what's working, what's not, specific improvements. Break into sections: Summary, Formatting, Content, Keywords, Achievements.",
+  "suggestions": "A detailed markdown analysis — what's working, what's not, specific improvements. Use ## headings for each section: Summary, Experience, Formatting, Keywords, Achievements. Be honest and critical.",
   "optimizedResume": "A rewritten, improved version of the full resume. Improve bullet points, add impact metrics where plausible, fix formatting, and tailor language.",
-  "comparisonHtml": "HTML table comparing the original vs optimized resume side by side. Use <table class=\"w-full text-sm\"><thead><tr><th class=\"text-left p-2\">Original</th><th class=\"text-left p-2\">Optimized</th></tr></thead><tbody>... with each section as a row."
-}
+  "comparisonHtml": "HTML table comparing original vs optimized resume side by side. Use <table class=\\"w-full text-sm\\"><thead><tr><th class=\\"text-left p-2\\">Original</th><th class=\\"text-left p-2\\">Optimized</th></tr></thead><tbody>... with each section as a row."
+}`;
 
-Be honest and critical — don't just praise. The user wants to actually improve.`;
-
-    const userPrompt = `Please analyze and optimize this resume${targetJob ? ` for a ${targetJob} position` : ""}:\n\n${resume}`;
+    const userPrompt = `Analyze and optimize this resume${targetJob ? ` for a ${targetJob} position` : ""}:\n\n${resume}`;
 
     const deepseekRes = await fetch("https://api.deepseek.com/v1/chat/completions", {
       method: "POST",
@@ -83,6 +47,7 @@ Be honest and critical — don't just praise. The user wants to actually improve
       body: JSON.stringify({
         model: DEEPSEEK_MODEL,
         max_tokens: 4096,
+        response_format: { type: "json_object" },
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
@@ -102,34 +67,32 @@ Be honest and critical — don't just praise. The user wants to actually improve
       return Response.json({ error: "AI returned empty response. Please try again." }, { status: 502 });
     }
 
-    // Parse JSON from DeepSeek's response
     let parsed;
     try {
-      // Try direct parse first
       parsed = JSON.parse(content);
     } catch {
-      // Fallback: extract JSON from markdown code block
       const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
       if (jsonMatch) {
         parsed = JSON.parse(jsonMatch[1]);
       } else {
-        console.error("Failed to parse DeepSeek response as JSON:", content.slice(0, 200));
+        console.error("Failed to parse DeepSeek response:", content.slice(0, 200));
         return Response.json({ error: "Failed to parse AI response. Please try again." }, { status: 502 });
       }
     }
 
     const id = crypto.randomUUID();
     const result = {
+      id,
       original: resume,
       targetJob: targetJob || null,
       suggestions: parsed.suggestions || "",
       optimizedResume: parsed.optimizedResume || "",
       comparisonHtml: sanitizeHtml(parsed.comparisonHtml || ""),
-      createdAt: Date.now(),
     };
-    resultStore.set(id, result);
 
-    return Response.json({ id, ...result });
+    await saveResult(result);
+
+    return Response.json({ ...result, createdAt: Date.now() });
   } catch (err) {
     console.error("Optimize error:", err);
     return Response.json({ error: "Internal server error." }, { status: 500 });
@@ -138,8 +101,12 @@ Be honest and critical — don't just praise. The user wants to actually improve
 
 export async function GET(request: NextRequest) {
   const id = request.nextUrl.searchParams.get("id");
-  if (!id || !resultStore.has(id)) {
+  if (!id) {
+    return Response.json({ error: "Missing id." }, { status: 400 });
+  }
+  const result = await getResult(id).catch(() => null);
+  if (!result) {
     return Response.json({ error: "Result not found." }, { status: 404 });
   }
-  return Response.json(resultStore.get(id));
+  return Response.json(result);
 }

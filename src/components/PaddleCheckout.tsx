@@ -8,20 +8,6 @@ interface Props {
   resultId?: string | null;
 }
 
-const PAID_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
-
-export function storePaidState(resultId: string) {
-  localStorage.setItem(`paid_${resultId}`, String(Date.now()));
-}
-
-export function isPaidState(resultId: string): boolean {
-  const stored = localStorage.getItem(`paid_${resultId}`);
-  if (!stored) return false;
-  const timestamp = parseInt(stored, 10);
-  if (isNaN(timestamp)) return false;
-  return Date.now() - timestamp < PAID_EXPIRY_MS;
-}
-
 export default function PaddleCheckout({ onSuccess, resultId }: Props) {
   const [paddle, setPaddle] = useState<Paddle | null>(null);
 
@@ -42,15 +28,12 @@ export default function PaddleCheckout({ onSuccess, resultId }: Props) {
   }, []);
 
   function handleCheckout() {
-    if (!paddle) return;
+    if (!paddle || !resultId) return;
 
     paddle.Checkout.open({
-      items: [
-        {
-          priceId: process.env.NEXT_PUBLIC_PADDLE_PRICE_ID!,
-          quantity: 1,
-        },
-      ],
+      items: [{ priceId: process.env.NEXT_PUBLIC_PADDLE_PRICE_ID!, quantity: 1 }],
+      // Pass result_id so webhook can link the payment to this result
+      customData: { result_id: resultId },
       settings: {
         displayMode: "overlay",
         theme: "dark",
@@ -61,22 +44,17 @@ export default function PaddleCheckout({ onSuccess, resultId }: Props) {
     });
   }
 
-  // Listen for the success redirect
+  // Detect redirect back from Paddle success page and re-check paid status
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     if (params.get("paid") === "1") {
-      // Persist paid state for this result
-      if (resultId) {
-        storePaidState(resultId);
-      }
       onSuccess();
-      // Clean up the URL
       const url = new URL(window.location.href);
       url.searchParams.delete("paid");
       window.history.replaceState({}, "", url.toString());
     }
-  }, [onSuccess, resultId]);
+  }, [onSuccess]);
 
   return (
     <button
