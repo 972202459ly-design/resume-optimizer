@@ -26,23 +26,27 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ received: true });
   }
 
-  const data = event.data;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data = event.data as any;
   const orderId: string = data.id ?? "";
+  const customerEmail: string | null = data.customer?.email ?? null;
+
+  // result_id might be in customData if passed by client, or already linked via confirm-payment
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const customData = (data.customData ?? {}) as Record<string, any>;
   const resultId: string = customData.result_id ?? "";
-  const customerEmail: string | null =
-    data.customer?.email ?? data.customerEmail ?? null;
 
-  if (resultId && orderId) {
-    try {
-      await savePaidState(resultId, orderId, customerEmail);
-    } catch (err) {
-      console.error("Failed to save paid state:", err);
-      return NextResponse.json({ error: "DB error" }, { status: 500 });
+  if (orderId) {
+    // If we have a result_id, link it now; otherwise just log (confirm-payment handles linking)
+    if (resultId) {
+      try {
+        await savePaidState(resultId, orderId, customerEmail);
+      } catch (err) {
+        console.error("Webhook: failed to save paid state:", err);
+      }
+    } else {
+      console.log("Webhook: transaction completed, no result_id in customData:", orderId);
     }
-  } else {
-    console.warn("Webhook: missing result_id or orderId", { resultId, orderId });
   }
 
   return NextResponse.json({ received: true });

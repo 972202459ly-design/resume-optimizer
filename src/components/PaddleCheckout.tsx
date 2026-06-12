@@ -12,10 +12,10 @@ export default function PaddleCheckout({ onSuccess, resultId }: Props) {
   const [paddle, setPaddle] = useState<Paddle | null>(null);
   const [ready, setReady] = useState(false);
   const onSuccessRef = useRef(onSuccess);
+  const resultIdRef = useRef(resultId);
 
-  useEffect(() => {
-    onSuccessRef.current = onSuccess;
-  });
+  useEffect(() => { onSuccessRef.current = onSuccess; });
+  useEffect(() => { resultIdRef.current = resultId; });
 
   useEffect(() => {
     let mounted = true;
@@ -30,6 +30,16 @@ export default function PaddleCheckout({ onSuccess, resultId }: Props) {
           token: process.env.NEXT_PUBLIC_PADDLE_CLIENT_TOKEN!,
           eventCallback: (event) => {
             if (event.name === "checkout.completed") {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const txnId: string = (event.data as any)?.transaction_id ?? "";
+              const rid = resultIdRef.current;
+              if (txnId && rid) {
+                fetch("/api/confirm-payment", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ resultId: rid, transactionId: txnId }),
+                }).catch(() => {});
+              }
               onSuccessRef.current();
             }
           },
@@ -51,7 +61,6 @@ export default function PaddleCheckout({ onSuccess, resultId }: Props) {
     if (!paddle || !resultId) return;
     paddle.Checkout.open({
       items: [{ priceId: process.env.NEXT_PUBLIC_PADDLE_PRICE_ID!, quantity: 1 }],
-      customData: { result_id: resultId },
       settings: {
         displayMode: "overlay",
         theme: "dark",
