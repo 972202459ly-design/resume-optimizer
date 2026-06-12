@@ -1,18 +1,14 @@
 import { NextRequest } from "next/server";
-import DOMPurify from "dompurify";
-import { JSDOM } from "jsdom";
+import sanitizeHtml from "sanitize-html";
 import { saveResult, getResult } from "@/lib/db";
 
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY!;
 const DEEPSEEK_MODEL = "deepseek-chat";
 
-function sanitizeHtml(html: string): string {
-  const window = new JSDOM("").window;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const purify = DOMPurify(window as any);
-  return purify.sanitize(html, {
-    ALLOWED_TAGS: ["table", "thead", "tbody", "tr", "th", "td", "p", "br", "b", "strong", "i", "em", "ul", "ol", "li", "span", "div"],
-    ALLOWED_ATTR: ["class"],
+function sanitize(html: string): string {
+  return sanitizeHtml(html, {
+    allowedTags: ["table", "thead", "tbody", "tr", "th", "td", "p", "br", "b", "strong", "i", "em", "ul", "ol", "li", "span", "div"],
+    allowedAttributes: { "*": ["class"] },
   });
 }
 
@@ -87,7 +83,7 @@ Return your analysis as valid JSON with these fields:
       targetJob: targetJob || null,
       suggestions: parsed.suggestions || "",
       optimizedResume: parsed.optimizedResume || "",
-      comparisonHtml: sanitizeHtml(parsed.comparisonHtml || ""),
+      comparisonHtml: sanitize(parsed.comparisonHtml || ""),
     };
 
     await saveResult(result);
