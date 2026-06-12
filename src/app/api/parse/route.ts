@@ -14,17 +14,13 @@ export async function POST(request: NextRequest) {
 
     // PDF
     if (fileName.endsWith(".pdf")) {
-      const { PDFParse } = await import("pdf-parse");
-      const parser = new PDFParse({ data: buffer });
-      const result = await parser.getText();
+      const pdfParse = (await import("pdf-parse")).default;
+      const result = await pdfParse(buffer);
       const text = result.text.trim();
       if (!text) {
         return Response.json({ error: "Could not extract text from PDF. The file may be scanned or image-based." }, { status: 400 });
       }
-      if (text.length > 10000) {
-        return Response.json({ text: text.slice(0, 10000) + "\n\n[Truncated to 10,000 characters]" });
-      }
-      return Response.json({ text });
+      return Response.json({ text: text.length > 10000 ? text.slice(0, 10000) + "\n\n[Truncated to 10,000 characters]" : text });
     }
 
     // DOCX
@@ -35,10 +31,7 @@ export async function POST(request: NextRequest) {
       if (!text) {
         return Response.json({ error: "Could not extract text from DOCX file." }, { status: 400 });
       }
-      if (text.length > 10000) {
-        return Response.json({ text: text.slice(0, 10000) + "\n\n[Truncated to 10,000 characters]" });
-      }
-      return Response.json({ text });
+      return Response.json({ text: text.length > 10000 ? text.slice(0, 10000) + "\n\n[Truncated to 10,000 characters]" : text });
     }
 
     return Response.json({ error: "Unsupported file type. Please upload a PDF or DOCX file." }, { status: 400 });
